@@ -137,6 +137,10 @@ template <typename Vec> struct Voronoi
 		Vertex<Iterator>* vertex = nullptr;
 		Halfedge* twin = nullptr, * prev = nullptr, * next = nullptr;
 		Cell<Iterator>* cell = nullptr;
+
+		bool isFinite() const {
+			return vertex && twin->vertex;
+		}
 	};
 
 	template <typename Iterator> struct Cell
