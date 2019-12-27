@@ -3,7 +3,7 @@
 
 ### Example
 ```cpp
-// Your Vector class must have the public member variables x and y, that's the only requirement
+// Your Vector class must have the public member floating-point variables x and y, that's the only requirement
 using Voronoi = Voronoi<Vector2>;
 
 // Any iterable container can be used as point source
