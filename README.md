@@ -1,4 +1,5 @@
 # Voronoi
+![alt text](https://github.com/Wollnashorn/Voronoi/blob/master/voronoi_title.png)
 
 ### Example
 ```cpp
