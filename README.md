@@ -22,7 +22,7 @@ for (auto& cell : output.cells)
       auto primary = edge->vertex ? edge : edge->twin;
       auto secondary = edge->vertex ? edge->twin : edge;
       auto rayOrigin = primary->vertex->circumcenter;
-      auto rayDirection = Math::perpendicular(*primary->cell->point - *secondary->cell->point);
+      auto rayDirection = perpendicular(*primary->cell->point - *secondary->cell->point);
     }
   }
 }
