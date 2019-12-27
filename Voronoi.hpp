@@ -193,7 +193,7 @@ template <typename Vec> struct Voronoi
 			++siteEventIt;
 		}
 
-		// We allocate the memory for the output containers too, as we know the maximum output of a Voronoi diagram beforehand
+		// We allocate the memory for the output containers too, as we know the maximum output beforehand
 		output.cells.reserve(pointCount);
 		output.vertices.reserve(2 * pointCount);
 		output.edges.reserve(6 * pointCount);
@@ -390,9 +390,9 @@ template <typename Vec> struct Voronoi
 	}
 
 	template <typename Iterator>
-	static typename Beachline<Iterator>::iterator addArc(Beachline<Iterator>& beachline, typename Sites<Iterator>::iterator left,
-		typename Sites<Iterator>::iterator right, typename Sites<Iterator>::iterator added, typename Beachline<Iterator>::iterator hint, 
-		Output<Iterator>& output)
+	static typename Beachline<Iterator>::iterator addArc(Beachline<Iterator>& beachline, 
+		typename Sites<Iterator>::iterator left, typename Sites<Iterator>::iterator right, 
+		typename Sites<Iterator>::iterator added, typename Beachline<Iterator>::iterator hint, Output<Iterator>& output)
 	{
 		auto rightPair = beachline.insert(hint, std::make_pair(SitePair<Iterator>{ added, right }, Bisector<Iterator>{}));
 		auto leftPair = beachline.insert(rightPair, std::make_pair(SitePair<Iterator>{ left, added }, Bisector<Iterator>{}));
@@ -424,8 +424,8 @@ template <typename Vec> struct Voronoi
 
 	template <typename Iterator>
 	static typename Beachline<Iterator>::iterator addCollinearArc(Beachline<Iterator>& beachline, 
-		typename Sites<Iterator>::iterator right, typename Sites<Iterator>::iterator added, typename Beachline<Iterator>::iterator hint, 
-		Output<Iterator>& output)
+		typename Sites<Iterator>::iterator right, typename Sites<Iterator>::iterator added, 
+		typename Beachline<Iterator>::iterator hint, Output<Iterator>& output)
 	{
 		auto leftPair = beachline.insert(hint, std::make_pair(SitePair<Iterator>{ right, added }, Bisector<Iterator>{ }));
 
@@ -463,15 +463,6 @@ template <typename Vec> struct Voronoi
 			return Vec{ -vec.y, vec.x };
 		};
 
-		const auto addCircleEvent = [&](const Vec& intersection, T radius)
-		{
-			auto circleEvent = std::make_unique<CircleEvent<Iterator>>(CircleEvent<Iterator>{ rightPair, intersection, radius });
-			circleEvent->eventPosition = intersection.y + radius;
-			circleEvent->index = circleEventIndex++;
-			rightPair->second.circleEvent = circleEvent.get();
-			circleEvents.emplace(std::move(circleEvent));
-		};
-
 		const auto& leftSite = leftPair->first.leftSite;
 		const auto& middleSite = rightPair->first.leftSite;
 		const auto& rightSite = rightPair->first.rightSite;
@@ -492,7 +483,11 @@ template <typename Vec> struct Voronoi
 			auto intersection = originLeft + directionLeft * t;
 			auto radius = euclideanDistance(intersection, middleSite->position);
 
-			addCircleEvent(intersection, radius);
+			auto circleEvent = std::make_unique<CircleEvent<Iterator>>(CircleEvent<Iterator>{ rightPair, intersection, radius });
+			circleEvent->eventPosition = intersection.y + radius;
+			circleEvent->index = circleEventIndex++;
+			rightPair->second.circleEvent = circleEvent.get();
+			circleEvents.emplace(std::move(circleEvent));
 		}
 	}
 
