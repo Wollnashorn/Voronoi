@@ -2,10 +2,14 @@
 
 #include <map>
 #include <queue>
+#include <memory>
+#include <algorithm>
+#include <cmath>
 
 template <typename Vec> struct Voronoi
 {
 	using T = decltype(Vec::x);
+	static constexpr T collinearEpsilon = 0;
 
 	template <typename> struct Site;
 	template <typename> struct SiteEvent;
@@ -79,7 +83,7 @@ template <typename Vec> struct Voronoi
 		bool distanceComparison(const Site<Iterator>& left, const Site<Iterator>& right, const Site<Iterator>& newer) const
 		{
 			const auto distanceToArc = [&newer](const auto& site) {
-				auto delta = newer.position - site.position;
+				Vec delta = { newer.position.x - site.position.x, newer.position.y - site.position.y };
 				return (delta.x * delta.x + delta.y * delta.y) / (2 * delta.y);
 			};
 
@@ -132,6 +136,10 @@ template <typename Vec> struct Voronoi
 		Halfedge<Iterator>* incidentEdge = nullptr;
 	};
 
+	struct Ray {
+		Vec origin, direction;
+	};
+
 	template <typename Iterator> struct Halfedge
 	{
 		Vertex<Iterator>* vertex = nullptr;
@@ -140,6 +148,13 @@ template <typename Vec> struct Voronoi
 
 		bool isFinite() const {
 			return vertex && twin->vertex;
+		}
+
+		Ray asRay() const
+		{
+			auto primary = vertex ? this : twin;
+			auto secondary = vertex ? twin : this;
+			return Ray{ primary->vertex->circumcenter, perpendicular(*secondary->cell->point, *primary->cell->point) };
 		}
 	};
 
@@ -180,9 +195,10 @@ template <typename Vec> struct Voronoi
 
 		// We allocate the final size before adding the sites to make sure the iterators will stay valid
 		sites.reserve(pointCount);
+		siteEvents.reserve(pointCount);
 		for (auto point = pointsBegin; point != pointsEnd; ++point)
 		{
-			sites.emplace_back(Site<Iterator>{ *point, point, 0 });
+			sites.emplace_back(Site<Iterator>{ Vec{ static_cast<T>(point->x), static_cast<T>(point->y) }, point, 0 });
 			siteEvents.emplace_back(SiteEvent<Iterator>{ --sites.end() });
 		}
 
@@ -272,8 +288,10 @@ template <typename Vec> struct Voronoi
 	static void beachlineInitialization(SiteEvents<Iterator>& siteEvents, Beachline<Iterator>& beachline, 
 		typename SiteEvents<Iterator>::iterator& siteEventIt, Output<Iterator>& output)
 	{
+
 		for (auto collinear = siteEvents.begin()+1; collinear != siteEvents.end() &&
-			collinear->site->position.y == siteEvents.begin()->site->position.y; ++collinear)
+			abs(collinear->site->position.y - siteEvents.begin()->site->position.y) < collinearEpsilon;
+			++collinear)
 		{
 			auto firstSite = siteEventIt->site;
 			auto secondSite = (++siteEventIt)->site;
@@ -460,34 +478,41 @@ template <typename Vec> struct Voronoi
 		typename Beachline<Iterator>::iterator rightPair, unsigned int& circleEventIndex)
 	{
 		const auto euclideanDistance = [](const Vec& a, const Vec& b) {
-			return hypot(a.x - b.x, a.y - b.y);
+			return std::hypot(a.x - b.x, a.y - b.y);
 		};
 
-		const auto perpendicular = [](const Vec& vec) {
-			return Vec{ -vec.y, vec.x };
+		/*
+		const auto perpendicular = [](const Vec& a, const Vec& b) {
+			return Vec{ a.y - b.y, b.x - a.x };
+		};
+		*/
+
+		const auto center = [](const Vec& a, const Vec& b) {
+			return Vec{ (a.x + b.x) / 2, (a.y + b.y) / 2 };
 		};
 
 		const auto& leftSite = leftPair->first.leftSite;
 		const auto& middleSite = rightPair->first.leftSite;
 		const auto& rightSite = rightPair->first.rightSite;
 
-		auto directionLeft = perpendicular(middleSite->position - leftSite->position);
-		auto directionRight = perpendicular(rightSite->position - middleSite->position);
+		auto directionLeft = perpendicular(leftSite->position, middleSite->position);
+		auto directionRight = perpendicular(middleSite->position, rightSite->position);
 
 		auto determinant = directionLeft.x * directionRight.y - directionLeft.y * directionRight.x;
 
 		if (determinant > 0) //2 * std::numeric_limits<T>::epsilon())
 		{
-			auto originLeft = (leftSite->position + middleSite->position) / 2;
-			auto originRight = (middleSite->position + rightSite->position) / 2;
+			Vec originLeft = center(leftSite->position, middleSite->position);
+			Vec originRight = center(middleSite->position, rightSite->position);
 
 			auto t = (originLeft.y * directionRight.x + directionRight.y * originRight.x -
 				originRight.y * directionRight.x - directionRight.y * originLeft.x) / determinant;
 
-			auto intersection = originLeft + directionLeft * t;
+			Vec intersection = { originLeft.x + directionLeft.x * t, originLeft.y + directionLeft.y * t };
 			auto radius = euclideanDistance(intersection, middleSite->position);
 
-			auto circleEvent = std::make_unique<CircleEvent<Iterator>>(CircleEvent<Iterator>{ rightPair, intersection, radius });
+			using CircleEvent = CircleEvent<Iterator>;
+			auto circleEvent = std::make_unique<CircleEvent>(CircleEvent{ rightPair, intersection, radius });
 			circleEvent->eventPosition = intersection.y + radius;
 			circleEvent->index = circleEventIndex++;
 			rightPair->second.circleEvent = circleEvent.get();
@@ -504,4 +529,9 @@ template <typename Vec> struct Voronoi
 			beachlineNode->second.circleEvent = nullptr;
 		}
 	}
+
+protected:
+		template <typename InputVec> static const auto perpendicular(const InputVec& a, const InputVec& b) {
+			return Vec{ a.y - b.y, b.x - a.x };
+		}
 };
