@@ -290,8 +290,7 @@ template <typename Vec> struct Voronoi
 	{
 
 		for (auto collinear = siteEvents.begin()+1; collinear != siteEvents.end() &&
-			abs(collinear->site->position.y - siteEvents.begin()->site->position.y) < collinearEpsilon;
-			++collinear)
+			collinear->site->position.y == siteEvents.begin()->site->position.y; ++collinear)
 		{
 			auto firstSite = siteEventIt->site;
 			auto secondSite = (++siteEventIt)->site;
