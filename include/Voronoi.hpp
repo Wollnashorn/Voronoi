@@ -361,9 +361,9 @@ template <typename Vector> struct Voronoi
 		}
 
 		leftNode = rightNode;
+		++rightNode;
 		if (rightNode != beachline.end())
 		{
-			++rightNode;
 			deactivateCircleEvent<Iterator>(rightNode);
 			activateCircleEvent(circleEvents, leftNode, rightNode);
 		}
