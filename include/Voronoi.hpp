@@ -1,116 +1,87 @@
 #pragma once
 
+#include <cstddef>
+#include <cmath>
+#include <array>
+#include <vector>
 #include <map>
 #include <queue>
+#include <iterator>
 #include <memory>
+#include <memory_resource>
 #include <algorithm>
-#include <cmath>
 
-template <typename Vec> struct Voronoi
+template <typename Vector> struct Voronoi
 {
-	using T = decltype(Vec::x);
-	static constexpr T collinearEpsilon = 0;
+	using T = decltype(Vector::x);
 
-	template <typename> struct Site;
-	template <typename> struct SiteEvent;
-	template <typename> struct SitePair;
-	template <typename> struct Bisector;
-	template <typename> struct CircleEvent;
-	template <typename> struct Output;
-	template <typename> struct Halfedge;
-	template <typename> struct Cell;
+	template <class> struct Site;
+	template <class> struct SitePair;
+	template <class> struct Bisector;
+	template <class> struct Halfedge;
+	template <class> struct Cell;
 
-	template <typename Iterator> using Beachline = std::map<SitePair<Iterator>, Bisector<Iterator>>;
-	template <typename Iterator> using Sites = std::vector<Site<Iterator>>;
-	template <typename Iterator> using SiteEvents = std::vector<SiteEvent<Iterator>>;
-	template <typename Iterator> using CircleEvents = std::priority_queue<std::unique_ptr<CircleEvent<Iterator>>,
-		std::vector<std::unique_ptr<CircleEvent<Iterator>>>, typename CircleEvent<Iterator>::Comparator>;
-	template <typename Iterator> using Outputs = std::deque<Output<Iterator>>;
+	template <class Iterator> using Beachline = std::pmr::map<SitePair<Iterator>, Bisector<Iterator>>;
+	template <class Iterator> using Sites = std::vector<Site<Iterator>>;
 
-	// The sites are all allocated at the first step of the Voronoi generator and stay in a container
-	template <typename Iterator> struct Site
+	template <class Iterator> using BeachlineNode = typename Beachline<Iterator>::iterator;
+	template <class Iterator> using SiteIterator = typename Sites<Iterator>::iterator;
+
+	// The sites are all allocated at the first step of the Voronoi generator and stay in a sorted std::vector
+	template <class Iterator> struct Site
 	{
-		Vec position;
+		Vector position;
 		Iterator iterator;
-		size_t index;
+		Cell<Iterator>* cell;
 	};
 
-	// Contains an iterator to the site that is going to be added
-	template <typename Iterator> struct SiteEvent
+	// Used as a key in the beachline binary tree structure, it contains the left and right site that form a bisector
+	template <class Iterator> struct SitePair
 	{
-		typename Sites<Iterator>::iterator site;
+		SiteIterator<Iterator> leftSite;
+		SiteIterator<Iterator> rightSite;
 
-		bool operator<(const SiteEvent& other) const
-		{
-			if (site->position.y == other.site->position.y)
-				return site->position.x < other.site->position.x;
-			return site->position.y < other.site->position.y;
-		}
-	};
-
-	// Used as a key in the beach line tree structure
-	template <typename Iterator> struct SitePair
-	{
-		typename Sites<Iterator>::iterator leftSite;
-		typename Sites<Iterator>::iterator rightSite;
-
-		bool operator<(const SitePair& other) const
+		constexpr bool operator<(const SitePair& other) const
 		{
 			const auto chooseNewer = [](const auto& left, const auto& right) -> const auto& {
-				return left->index < right->index ? *right : *left;
+				return right > left ? right : left;
 			};
 
-			// We compare the newer sites of both Site Pairs
-			const auto& siteA = chooseNewer(leftSite, rightSite);
-			const auto& siteB = chooseNewer(other.leftSite, other.rightSite);
+			// Compare the newer sites of both site pairs. For that we compare the memory addresses instead of 
+			// the y-coordinate as this is slightly faster than comparing floating point numbers
+			const auto siteA = chooseNewer(leftSite, rightSite);
+			const auto siteB = chooseNewer(other.leftSite, other.rightSite);
 
-			if (siteA.position.y < siteB.position.y)
-			{
-				return distanceComparison(*leftSite, *rightSite, siteB);
-			}
-			else if (siteB.position.y < siteA.position.y)
-			{
-				return !distanceComparison(*other.leftSite, *other.rightSite, siteA);
-			}
-			else if (siteA.index == siteB.index)
-			{
-				return leftSite->index < other.leftSite->index;
-			}
-			return siteA.index < siteB.index;
+			if (siteA->position.y < siteB->position.y)
+				return distanceComparison(*leftSite, *rightSite, *siteB);
+			else if (siteA->position.y > siteB->position.y)
+				return !distanceComparison(*other.leftSite, *other.rightSite, *siteA);
+			else if (siteA == siteB)
+				return leftSite < other.leftSite;
+			return siteA < siteB;
 		}
 
 	private:
-		bool distanceComparison(const Site<Iterator>& left, const Site<Iterator>& right, const Site<Iterator>& newer) const
+		constexpr bool distanceComparison(const Site<Iterator>& left, const Site<Iterator>& right, const Site<Iterator>& newer) const
 		{
-			const auto distanceToArc = [&newer](const auto& site) {
-				Vec delta = { newer.position.x - site.position.x, newer.position.y - site.position.y };
-				return (delta.x * delta.x + delta.y * delta.y) / (2 * delta.y);
-			};
-
-			if (left.position.y < right.position.y)
-			{
-				if (newer.position.x >= right.position.x)
-					return true;
-			}
-			else if (left.position.y > right.position.y)
-			{
-				if (newer.position.x <= left.position.x)
-					return false;
-			}
-			// if both sites share the same y-coordinate compare against the center of both sites
-			else
-			{
+			// If both sites share the same y-coordinate compare against the center of both sites
+			if (left.position.y == right.position.y)
 				return 2 * newer.position.x > left.position.x + right.position.x;
-			}
 
-			return distanceToArc(right) < distanceToArc(left);
+			if (left.position.y < right.position.y && newer.position.x >= right.position.x) return true;
+			if (left.position.y > right.position.y && newer.position.x <= left.position.x)	return false;
+
+			auto squaredLength = [](const Vector& v) { return v.x * v.x + v.y * v.y; };
+			const Vector deltaLeft = { newer.position.x - left.position.x, newer.position.y - left.position.y };
+			const Vector deltaRight = { newer.position.x - right.position.x, newer.position.y - right.position.y };
+			return squaredLength(deltaRight) * deltaLeft.y < squaredLength(deltaLeft)* deltaRight.y;
 		}
 	};
 
-	template <typename Iterator> struct CircleEvent
+	template <class Iterator> struct CircleEvent
 	{
-		typename Beachline<Iterator>::iterator rightPair;
-		Vec position;
+		BeachlineNode<Iterator> rightNode;
+		Vector position;
 		T radius;
 		T eventPosition;
 		bool active = true;
@@ -118,67 +89,90 @@ template <typename Vec> struct Voronoi
 
 		struct Comparator
 		{
-			bool operator()(const std::unique_ptr<CircleEvent>& a, const std::unique_ptr<CircleEvent>& b)
+			constexpr bool operator()(const std::unique_ptr<CircleEvent<Iterator>>& a, const std::unique_ptr<CircleEvent<Iterator>>& b)
 			{
-				if (a->eventPosition == b->eventPosition)
-					return a->index > b->index;
-
+				if (a->eventPosition == b->eventPosition) return a->index > b->index;
 				return a->eventPosition > b->eventPosition;
 			}
 		};
 	};
 
-	template <typename Iterator> struct Vertex
+	template <class Iterator> struct CircleEvents
 	{
-		Vec circumcenter;
+		unsigned int indexCounter = 0;
+		std::vector<std::unique_ptr<CircleEvent<Iterator>>> recycleBuffer;
+		std::priority_queue<std::unique_ptr<CircleEvent<Iterator>>, std::vector<std::unique_ptr<CircleEvent<Iterator>>>,
+			typename CircleEvent<Iterator>::Comparator> queue;
+	};
+
+	template <class Iterator> struct Vertex
+	{
+		Vector circumcenter;
 		T radius;
 		std::array<Iterator, 3> triangle;
 		Halfedge<Iterator>* incidentEdge = nullptr;
 	};
 
-	struct Ray {
-		Vec origin, direction;
-	};
+	struct Ray { Vector origin, direction; };
 
-	template <typename Iterator> struct Halfedge
+	template <class Iterator> struct Halfedge
 	{
-		Vertex<Iterator>* vertex = nullptr;
-		Halfedge* twin = nullptr, * prev = nullptr, * next = nullptr;
 		Cell<Iterator>* cell = nullptr;
+		Vertex<Iterator>* vertex = nullptr;
+		Halfedge* twin = nullptr, *prev = nullptr, *next = nullptr;
 
-		bool isFinite() const {
-			return vertex && twin->vertex;
-		}
+		constexpr bool isFinite() const { return vertex && twin->vertex; }
 
-		Ray asRay() const
+		constexpr Ray asRay() const
 		{
-			auto primary = vertex ? this : twin;
-			auto secondary = vertex ? twin : this;
-			return Ray{ primary->vertex->circumcenter, perpendicular(*secondary->cell->point, *primary->cell->point) };
+			if (vertex || twin->vertex)
+			{
+				auto primary = vertex ? this : twin;
+				auto secondary = vertex ? twin : this;
+				return { primary->vertex->circumcenter, perpendicular(*secondary->cell->point, *primary->cell->point) };
+			}
+			else
+			{
+				// When there is no Voronoi vertex at all, then this edge is a infinite straight with no intersections. 
+				// In this case we output a ray with origin in the middle of both sites
+				auto origin = (*cell->point + *twin->cell->point) / 2;
+				return Ray{ origin, perpendicular(*cell->point, *twin->cell->point) };
+			}
 		}
 	};
 
-	template <typename Iterator> struct Cell
+	template <class Iterator> struct Cell
 	{
 		Iterator point;
 		Halfedge<Iterator>* incidentEdge = nullptr;
 	};
 
-	template <typename Iterator> struct Output
+	template <class Iterator> struct Output
 	{
 		std::vector<Vertex<Iterator>> vertices;
 		std::vector<Halfedge<Iterator>> edges;
 		std::vector<Cell<Iterator>> cells;
 	};
 
-	template <typename Iterator> struct Bisector
+	template <class Iterator> struct Bisector
 	{
 		CircleEvent<Iterator>* circleEvent = nullptr;
 		Halfedge<Iterator>* edge = nullptr;
 	};
 
-	template <typename Iterator>
+	template <class Iterator> static constexpr bool defaultIgnoreFunction(const Vertex<Iterator>&)
+	{
+		return false;
+	}
+
+	template <class Iterator>
 	static Output<Iterator> generate(Iterator pointsBegin, Iterator pointsEnd)
+	{
+		return generate(pointsBegin, pointsEnd, defaultIgnoreFunction<Iterator>);
+	}
+
+	template <class Iterator, typename IgnoreFunction>
+	static Output<Iterator> generate(Iterator pointsBegin, Iterator pointsEnd, const IgnoreFunction& ignoreFunction)
 	{
 		Output<Iterator> output;
 
@@ -187,340 +181,275 @@ template <typename Vec> struct Voronoi
 		if (pointCount < 3)
 			return output;
 
-		Sites<Iterator> sites;
-		SiteEvents<Iterator> siteEvents;
-		CircleEvents<Iterator> circleEvents;
-		unsigned int circleEventIndex = 0u;
+		//char buffer[sizeof(std::pair<SitePair<Iterator>, Bisector<Iterator>>) * 128];
+		std::pmr::monotonic_buffer_resource bufferResource; //(buffer, sizeof(buffer));
 
+		Sites<Iterator> sites;
+		Beachline<Iterator> beachline(&bufferResource);
+		CircleEvents<Iterator> circleEvents;
 
 		// We allocate the final size before adding the sites to make sure the iterators will stay valid
 		sites.reserve(pointCount);
-		siteEvents.reserve(pointCount);
 		for (auto point = pointsBegin; point != pointsEnd; ++point)
-		{
-			sites.emplace_back(Site<Iterator>{ Vec{ static_cast<T>(point->x), static_cast<T>(point->y) }, point, 0 });
-			siteEvents.emplace_back(SiteEvent<Iterator>{ --sites.end() });
-		}
+			sites.emplace_back(Site<Iterator>{ Vector{ static_cast<T>(point->x), static_cast<T>(point->y) }, point, 0 });
 
+		std::sort(sites.begin(), sites.end(), [](const Site<Iterator>& a, const Site<Iterator>& b) {
+			if (a.iterator->y == b.iterator->y) return a.iterator->x < b.iterator->x;
+			return a.iterator->y < b.iterator->y;
+		});
 
-		// Site events will be added only once at the beginning, so we just have to sort it this time
-		std::sort(siteEvents.begin(), siteEvents.end());
-
-		auto siteEventIt = siteEvents.begin();
-		for (size_t i = 0u; i < siteEvents.size(); ++i)
-		{
-			siteEventIt->site->index = i;
-			++siteEventIt;
-		}
-
-		// We allocate the memory for the output containers too, as we know the maximum output beforehand
+		// We allocate the memory for the output containers too, as we know the maximum output size beforehand
 		output.cells.reserve(pointCount);
 		output.vertices.reserve(2 * pointCount);
 		output.edges.reserve(6 * pointCount);
-		
-		Beachline<Iterator> beachline;
-		siteEventIt = siteEvents.begin();
 
-		beachlineInitialization(siteEvents, beachline, siteEventIt, output);
-
-		while (siteEventIt != siteEvents.end() || !circleEvents.empty())
+		for (auto& site : sites)
 		{
-			if (circleEvents.empty())
-			{
-				processSiteEvent(beachline, circleEvents, siteEventIt, circleEventIndex, output);
-			}
-			else
-			{
-				if (siteEventIt == siteEvents.end())
-				{
-					auto circleEvent = *circleEvents.top();
-					circleEvents.pop();
-					processCircleEvent(beachline, circleEvents, circleEvent, output, circleEventIndex);
-				}
-				else
-				{
-					if (circleEvents.top()->eventPosition < siteEventIt->site->position.y)
-					{
-						auto circleEvent = *circleEvents.top();
-						circleEvents.pop();
-						processCircleEvent(beachline, circleEvents, circleEvent, output, circleEventIndex);
-					}
-					else
-					{
-						processSiteEvent(beachline, circleEvents, siteEventIt, circleEventIndex, output);
-					}
-				}
-			}
-
-			// Delete all inactive circle events
-			while (!circleEvents.empty() && !circleEvents.top()->active)
-				circleEvents.pop();
+			output.cells.push_back(Cell<Iterator>{ site.iterator });
+			site.cell = &output.cells.back();
 		}
 
-		for (auto& cell : output.cells)
-		{
-			auto start = cell.incidentEdge;
-			auto edge = start;
-			while (edge->prev)
-			{
-				edge = edge->prev;
+		auto siteEvent = sites.begin();
+		beachlineInitialization(sites, beachline, siteEvent, output);
 
-				if (edge == start)
-					break;
+		while (siteEvent != sites.end() || !circleEvents.queue.empty())
+		{
+			// Always prioritize site events as they could deactivate a circle event that would otherwise has been processed
+			if (siteEvent != sites.end() && (circleEvents.queue.empty() || siteEvent->position.y <= circleEvents.queue.top()->eventPosition))
+				processSiteEvent(beachline, circleEvents, siteEvent, output);
+			else
+			{
+				// We need to cast the processed circle event to a non-const reference in order to move it to the recycle buffer.
+				// This is a workaround because std::priority_queue unfortunately doesn't allow us to pop and move the top element
+				circleEvents.recycleBuffer.emplace_back(std::move(const_cast<std::unique_ptr<CircleEvent<Iterator>>&>(circleEvents.queue.top())));
+				auto& circleEvent = *circleEvents.recycleBuffer.back();
+				circleEvents.queue.pop();
+				processCircleEvent(beachline, circleEvents, circleEvent, output, ignoreFunction);
 			}
 
-			// If the edge is part of an unclosed cell, we skip to the next one
-			if (edge->prev)
-				continue;
+			// Skip and remove all incoming deactivated circle events
+			while (!circleEvents.queue.empty() && !circleEvents.queue.top()->active)
+			{
+				circleEvents.recycleBuffer.emplace_back(std::move(const_cast<std::unique_ptr<CircleEvent<Iterator>>&>(circleEvents.queue.top())));
+				circleEvents.queue.pop();
+			}
+		}
 
-			auto rightEdge = start;
-			while (rightEdge->next)
-				rightEdge = rightEdge->next;
+		// For infinite cells, link both infinite edges with each other so that each half edge has a successor and predecessor
+		for (auto& cell : output.cells)
+		{
+			auto* start = cell.incidentEdge;
+			auto* leftEdge = start;
+			while (leftEdge->prev != start && leftEdge->prev) leftEdge = leftEdge->prev;
 
-			edge->prev = rightEdge;
-			rightEdge->next = edge;
+			// Skip this cell if it is already enclosed
+			if (leftEdge->prev) continue;
+
+			auto* rightEdge = start;
+			while (rightEdge->next)	rightEdge = rightEdge->next;
+
+			leftEdge->prev = rightEdge;
+			rightEdge->next = leftEdge;
 		}
 
 		return output;
 	}
 
-	template <typename Iterator>
-	static void beachlineInitialization(SiteEvents<Iterator>& siteEvents, Beachline<Iterator>& beachline, 
-		typename SiteEvents<Iterator>::iterator& siteEventIt, Output<Iterator>& output)
+	template <class Iterator>
+	static constexpr void beachlineInitialization(Sites<Iterator>& sites, Beachline<Iterator>& beachline,
+		SiteIterator<Iterator>& site, Output<Iterator>& output)
 	{
-
-		for (auto collinear = siteEvents.begin()+1; collinear != siteEvents.end() &&
-			collinear->site->position.y == siteEvents.begin()->site->position.y; ++collinear)
+		for (auto collinear = std::next(site); collinear != sites.end() && collinear->position.y == site->position.y; ++collinear)
 		{
-			auto firstSite = siteEventIt->site;
-			auto secondSite = (++siteEventIt)->site;
+			auto firstSite = site;
+			auto secondSite = ++site;
 			auto leftArc = addCollinearArc(beachline, firstSite, secondSite, beachline.end(), output);
 		}
 
-		if (siteEventIt == siteEvents.begin())
+		if (beachline.empty())
 		{
-			auto firstSite = siteEventIt->site;
-			auto secondSite = (++siteEventIt)->site;
+			auto firstSite = site;
+			auto secondSite = ++site;
 			addArc(beachline, firstSite, firstSite, secondSite, beachline.end(), output);
 		}
-		++siteEventIt;
+		++site;
 	}
 
-	template <typename Iterator>
-	static void processSiteEvent(Beachline<Iterator>& beachline, CircleEvents<Iterator>& circleEvents, 
-		typename SiteEvents<Iterator>::iterator& siteEventIt, unsigned int& circleEventIndex, Output<Iterator>& output)
+	template <class Iterator>
+	static constexpr void processSiteEvent(Beachline<Iterator>& beachline, CircleEvents<Iterator>& circleEvents,
+		SiteIterator<Iterator>& site, Output<Iterator>& output)
 	{
-		auto site = siteEventIt->site;
-		++siteEventIt;
-
 		SitePair<Iterator> key = { site, site };
-		auto rightPair = beachline.lower_bound(key);
+		auto rightNode = beachline.lower_bound(key);
 
-		if (rightPair == beachline.end())
+		if (rightNode == beachline.end())
 		{
-			auto leftPair = rightPair;
-			--leftPair;
-			auto inserted = addArc(beachline, leftPair->first.rightSite, leftPair->first.rightSite, site, rightPair, output);
-			activateCircleEvent(circleEvents, leftPair, inserted, circleEventIndex);
+			auto leftNode = std::prev(rightNode);
+			auto inserted = addArc(beachline, leftNode->first.rightSite, leftNode->first.rightSite, site, rightNode, output);
+			activateCircleEvent( circleEvents, leftNode, inserted);
 		}
-		else if (rightPair == beachline.begin())
+		else if (rightNode == beachline.begin())
 		{
-			auto leftPair = addArc(beachline, rightPair->first.leftSite, rightPair->first.leftSite, site, rightPair, output);
-			++leftPair;
-			activateCircleEvent(circleEvents, leftPair, rightPair, circleEventIndex);
+			auto leftNode = addArc(beachline, rightNode->first.leftSite, rightNode->first.leftSite, site, rightNode, output);
+			activateCircleEvent(circleEvents, ++leftNode, rightNode);
 		}
 		else
 		{
-			deactivateCircleEvent<Iterator>(rightPair);
-
-			auto leftPair = rightPair;
-			--leftPair;
-
-			auto inserted = addArc(beachline, leftPair->first.rightSite, rightPair->first.leftSite, site, rightPair, output);
+			deactivateCircleEvent<Iterator>(rightNode);
+			auto leftNode = std::prev(rightNode);
+			auto inserted = addArc(beachline, leftNode->first.rightSite, rightNode->first.leftSite, site, rightNode, output);
 
 			// Check and activate circular event on the left
-			activateCircleEvent(circleEvents, leftPair, inserted, circleEventIndex);
+			activateCircleEvent(circleEvents, leftNode, inserted);
 			// ... and on the right
-			leftPair = ++inserted;
-			activateCircleEvent(circleEvents, leftPair, rightPair, circleEventIndex);
+			activateCircleEvent(circleEvents, ++inserted, rightNode);
 		}
+		++site;
 	}
 
-	template <typename Iterator>
-	static void processCircleEvent(Beachline<Iterator>& beachline, CircleEvents<Iterator>& circleEvents,
-		const CircleEvent<Iterator>& circleEvent, Output<Iterator>& output, unsigned int& circleEventIndex)
+	template <class Iterator, class IgnoreFunction>
+	static constexpr void processCircleEvent(Beachline<Iterator>& beachline, CircleEvents<Iterator>& circleEvents,
+		const CircleEvent<Iterator>& circleEvent, Output<Iterator>& output, IgnoreFunction ignoreFunction = defaultIgnoreFunction<Iterator>)
 	{
-		auto rightPair = circleEvent.rightPair;
-		auto leftPair = circleEvent.rightPair;
-		--leftPair;
+		auto rightNode = circleEvent.rightNode;
+		auto leftNode = std::prev(circleEvent.rightNode);
 
-		auto right = rightPair->first.rightSite;
-		auto middle = leftPair->first.rightSite;
-		auto left = leftPair->first.leftSite;
+		auto right = rightNode->first.rightSite;
+		auto middle = leftNode->first.rightSite;
+		auto left = leftNode->first.leftSite;
 
-		output.vertices.emplace_back(Vertex<Iterator>{ circleEvent.position, circleEvent.radius,
-			{ left->iterator, middle->iterator, right->iterator } });
-		auto vertex = &output.vertices.back();
-		vertex->incidentEdge = rightPair->second.edge;
-
-		output.edges.emplace_back(Halfedge<Iterator>{});
-		auto& newEdge = output.edges.back();
-		output.edges.emplace_back(Halfedge<Iterator>{});
-		auto& newTwin = output.edges.back();
+		auto& newEdge = (output.edges.emplace_back(Halfedge<Iterator>{ left->cell }), output.edges.back());
+		auto& newTwin = (output.edges.emplace_back(Halfedge<Iterator>{ right->cell }), output.edges.back());
 
 		newEdge.twin = &newTwin;
 		newTwin.twin = &newEdge;
 
-		newEdge.cell = &output.cells[left->index];
-		newTwin.cell = &output.cells[right->index];
+		auto triangle = std::array<Iterator, 3>{ left->iterator, middle->iterator, right->iterator };
+		auto vertex = Vertex<Iterator>{ circleEvent.position, circleEvent.radius, std::move(triangle) };
+		auto ignore = ignoreFunction(vertex);
 
-		leftPair->second.edge->vertex = vertex;
-		rightPair->second.edge->vertex = vertex;
-		newTwin.vertex = vertex;
+		if (!ignore)
+		{
+			vertex.incidentEdge = rightNode->second.edge;
+			output.vertices.emplace_back(std::move(vertex));
+			leftNode->second.edge->vertex = rightNode->second.edge->vertex = newTwin.vertex = &output.vertices.back();
+		}
 
-		const auto connect = [](Halfedge<Iterator>* a, Halfedge<Iterator>* b) {
+		auto connect = [](Halfedge<Iterator>* a, Halfedge<Iterator>* b) {
 			a->next = b;
 			b->prev = a;
 		};
 
-		connect(&newEdge, leftPair->second.edge);
-		connect(leftPair->second.edge->twin, rightPair->second.edge);
-		connect(rightPair->second.edge->twin, &newTwin);
+		connect(&newEdge, leftNode->second.edge);
+		connect(leftNode->second.edge->twin, rightNode->second.edge);
+		connect(rightNode->second.edge->twin, &newTwin);
 
-		const_cast<SitePair<Iterator>&>(leftPair->first).rightSite = rightPair->first.rightSite;
-		auto& bisector = leftPair->second;
+		auto& bisector = leftNode->second;
 		bisector.edge = &newEdge;
 
-		beachline.erase(rightPair);
-		rightPair = leftPair;
+		// We cast here to a non-const reference once again, as we want to remove the inbetween bisector node
+		// and we know that the sorting order will not change. AB CD -> AD
+		const_cast<SitePair<Iterator>&>(leftNode->first).rightSite = rightNode->first.rightSite;
+		beachline.erase(rightNode);
 
-		if (leftPair != beachline.begin())
+		rightNode = leftNode;
+		if (leftNode != beachline.begin())
 		{
-			deactivateCircleEvent<Iterator>(leftPair);
-			--leftPair;
-			activateCircleEvent(circleEvents, leftPair, rightPair, circleEventIndex);
+			--leftNode;
+			deactivateCircleEvent<Iterator>(rightNode);
+			activateCircleEvent(circleEvents, leftNode, rightNode);
 		}
 
-		leftPair = rightPair;
-		++rightPair;
-		if (rightPair != beachline.end())
+		leftNode = rightNode;
+		if (rightNode != beachline.end())
 		{
-			deactivateCircleEvent<Iterator>(rightPair);
-			activateCircleEvent(circleEvents, leftPair, rightPair, circleEventIndex);
+			++rightNode;
+			deactivateCircleEvent<Iterator>(rightNode);
+			activateCircleEvent(circleEvents, leftNode, rightNode);
 		}
 	}
 
-	template <typename Iterator>
-	static typename Beachline<Iterator>::iterator addArc(Beachline<Iterator>& beachline, 
-		typename Sites<Iterator>::iterator left, typename Sites<Iterator>::iterator right, 
-		typename Sites<Iterator>::iterator added, typename Beachline<Iterator>::iterator hint, Output<Iterator>& output)
+	template <class Iterator>
+	static constexpr BeachlineNode<Iterator> addArc(Beachline<Iterator>& beachline,	SiteIterator<Iterator> left, 
+		SiteIterator<Iterator> right, SiteIterator<Iterator> added, BeachlineNode<Iterator> hint, Output<Iterator>& output)
 	{
-		auto rightPair = beachline.insert(hint, std::make_pair(SitePair<Iterator>{ added, right }, Bisector<Iterator>{}));
-		auto leftPair = beachline.insert(rightPair, std::make_pair(SitePair<Iterator>{ left, added }, Bisector<Iterator>{}));
+		auto rightNode = beachline.insert(hint, { SitePair<Iterator>{ added, right }, Bisector<Iterator>{} });
+		auto leftNode = beachline.insert(rightNode, { SitePair<Iterator>{ left, added }, Bisector<Iterator>{} });
 
-		output.edges.push_back(Halfedge<Iterator>{});
-		auto& leftEdge = output.edges.back();
-		output.edges.push_back(Halfedge<Iterator>{});
-		auto& rightEdge = output.edges.back();
+		auto& leftEdge = (output.edges.push_back(Halfedge<Iterator>{ right->cell }), output.edges.back());
+		auto& rightEdge = (output.edges.push_back(Halfedge<Iterator>{ added->cell }), output.edges.back());
 
 		leftEdge.twin = &rightEdge;
 		rightEdge.twin = &leftEdge;
-
-		leftPair->second.edge = &leftEdge;
-		rightPair->second.edge = &rightEdge;
-
-		// We create the cell for the right site only during initialization
-		if (output.cells.empty())
-			output.cells.emplace_back(Cell<Iterator>{ right->iterator });
-		output.cells.emplace_back(Cell<Iterator>{ added->iterator });
-
-		leftEdge.cell = &output.cells[right->index];
-		rightEdge.cell = &output.cells.back();
-
 		leftEdge.cell->incidentEdge = &leftEdge;
 		rightEdge.cell->incidentEdge = &rightEdge;
+		leftNode->second.edge = &leftEdge;
+		rightNode->second.edge = &rightEdge;
 
-		return leftPair;
+		return leftNode;
 	}
 
-	template <typename Iterator>
-	static typename Beachline<Iterator>::iterator addCollinearArc(Beachline<Iterator>& beachline, 
-		typename Sites<Iterator>::iterator right, typename Sites<Iterator>::iterator added, 
-		typename Beachline<Iterator>::iterator hint, Output<Iterator>& output)
+	template <class Iterator>
+	static constexpr BeachlineNode<Iterator> addCollinearArc(Beachline<Iterator>& beachline, 
+		SiteIterator<Iterator> right, SiteIterator<Iterator> added, BeachlineNode<Iterator> hint, Output<Iterator>& output)
 	{
-		auto leftPair = beachline.insert(hint, std::make_pair(SitePair<Iterator>{ right, added }, Bisector<Iterator>{ }));
+		auto leftNode = beachline.insert(hint, { SitePair<Iterator>{ right, added }, Bisector<Iterator>{} });
 
-		output.edges.push_back(Halfedge<Iterator>{});
-		auto& leftEdge = output.edges.back();
-		output.edges.push_back(Halfedge<Iterator>{});
-		auto& rightEdge = output.edges.back();
+		auto& leftEdge = (output.edges.push_back(Halfedge<Iterator>{ right->cell }), output.edges.back());
+		auto& rightEdge = (output.edges.push_back(Halfedge<Iterator>{ added->cell }), output.edges.back());
 
 		leftEdge.twin = &rightEdge;
 		rightEdge.twin = &leftEdge;
-		leftPair->second.edge = &leftEdge;
-
-		if (output.cells.empty())
-			output.cells.emplace_back(Cell<Iterator>{ right->iterator });
-		output.cells.emplace_back(Cell<Iterator>{ added->iterator });
-
-		leftEdge.cell = &output.cells[right->index];
-		rightEdge.cell = &output.cells.back();
-
 		leftEdge.cell->incidentEdge = &leftEdge;
 		rightEdge.cell->incidentEdge = &rightEdge;
+		leftNode->second.edge = &leftEdge;
 
-		return leftPair;
+		return leftNode;
 	}
 
 	template <typename Iterator>
-	static void activateCircleEvent(CircleEvents<Iterator>& circleEvents, typename Beachline<Iterator>::iterator leftPair, 
-		typename Beachline<Iterator>::iterator rightPair, unsigned int& circleEventIndex)
+	static constexpr void activateCircleEvent(CircleEvents<Iterator>& circleEvents,	BeachlineNode<Iterator> leftNode, 
+		BeachlineNode<Iterator> rightNode)
 	{
-		const auto euclideanDistance = [](const Vec& a, const Vec& b) {
-			return std::hypot(a.x - b.x, a.y - b.y);
-		};
+		auto euclideanDistance = [](const Vector& a, const Vector& b) { return std::hypot(a.x - b.x, a.y - b.y); };
+		auto center = [](const Vector& a, const Vector& b) { return Vector{ (a.x + b.x) / 2, (a.y + b.y) / 2 }; };
 
-		/*
-		const auto perpendicular = [](const Vec& a, const Vec& b) {
-			return Vec{ a.y - b.y, b.x - a.x };
-		};
-		*/
+		const auto& leftSite = leftNode->first.leftSite;
+		const auto& middleSite = rightNode->first.leftSite;
+		const auto& rightSite = rightNode->first.rightSite;
 
-		const auto center = [](const Vec& a, const Vec& b) {
-			return Vec{ (a.x + b.x) / 2, (a.y + b.y) / 2 };
-		};
+		Vector directionLeft = perpendicular(leftSite->position, middleSite->position);
+		Vector directionRight = perpendicular(middleSite->position, rightSite->position);
 
-		const auto& leftSite = leftPair->first.leftSite;
-		const auto& middleSite = rightPair->first.leftSite;
-		const auto& rightSite = rightPair->first.rightSite;
-
-		auto directionLeft = perpendicular(leftSite->position, middleSite->position);
-		auto directionRight = perpendicular(middleSite->position, rightSite->position);
-
+		// Only add a new circle event if the two bisector edges will intersect in the future. This is not the case if they are parallel
 		auto determinant = directionLeft.x * directionRight.y - directionLeft.y * directionRight.x;
-
-		if (determinant > 0) //2 * std::numeric_limits<T>::epsilon())
+		if (determinant > 0)
 		{
-			Vec originLeft = center(leftSite->position, middleSite->position);
-			Vec originRight = center(middleSite->position, rightSite->position);
+			Vector originLeft = center(leftSite->position, middleSite->position);
+			Vector originRight = center(middleSite->position, rightSite->position);
 
-			auto t = (originLeft.y * directionRight.x + directionRight.y * originRight.x -
-				originRight.y * directionRight.x - directionRight.y * originLeft.x) / determinant;
+			auto t = (originLeft.y * directionRight.x - directionRight.y * originLeft.x + 
+				directionRight.y * originRight.x - originRight.y * directionRight.x) / determinant;
 
-			Vec intersection = { originLeft.x + directionLeft.x * t, originLeft.y + directionLeft.y * t };
+			Vector intersection = { originLeft.x + directionLeft.x * t, originLeft.y + directionLeft.y * t };
 			auto radius = euclideanDistance(intersection, middleSite->position);
 
-			using CircleEvent = CircleEvent<Iterator>;
-			auto circleEvent = std::make_unique<CircleEvent>(CircleEvent{ rightPair, intersection, radius });
+			auto circleEvent = circleEvents.recycleBuffer.empty()
+				? std::make_unique<CircleEvent<Iterator>>()
+				: std::move(circleEvents.recycleBuffer.back());
+
+			if (!circleEvents.recycleBuffer.empty()) circleEvents.recycleBuffer.pop_back();
+
+			*circleEvent = { rightNode, intersection, radius };
 			circleEvent->eventPosition = intersection.y + radius;
-			circleEvent->index = circleEventIndex++;
-			rightPair->second.circleEvent = circleEvent.get();
-			circleEvents.emplace(std::move(circleEvent));
+			circleEvent->index = circleEvents.indexCounter++;
+			rightNode->second.circleEvent = circleEvent.get();
+			circleEvents.queue.emplace(std::move(circleEvent));
 		}
 	}
 
-	template <typename Iterator>
-	static void deactivateCircleEvent(typename Beachline<Iterator>::iterator beachlineNode)
+	template <class Iterator>
+	static constexpr void deactivateCircleEvent(BeachlineNode<Iterator> beachlineNode)
 	{
 		if (beachlineNode->second.circleEvent)
 		{
@@ -530,7 +459,7 @@ template <typename Vec> struct Voronoi
 	}
 
 protected:
-		template <typename InputVec> static const auto perpendicular(const InputVec& a, const InputVec& b) {
-			return Vec{ a.y - b.y, b.x - a.x };
-		}
+	template <class InputVec> static constexpr Vector perpendicular(const InputVec& a, const InputVec& b) {
+		return { a.y - b.y, b.x - a.x };
+	}
 };
