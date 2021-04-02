@@ -20,10 +20,7 @@ for (auto& cell : output.cells)
     // if the edge is infinite, it's direction can be calculated with their two associated cells
     if (!edge->isFinite())
     {
-      auto primary = edge->vertex ? edge : edge->twin;
-      auto secondary = edge->vertex ? edge->twin : edge;
-      auto rayOrigin = primary->vertex->circumcenter;
-      auto rayDirection = perpendicular(*primary->cell->point - *secondary->cell->point);
+      auto [rayOrigin, rayDirection] = edge.asRay();
     }
   }
 }
