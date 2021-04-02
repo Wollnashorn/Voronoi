@@ -10,6 +10,7 @@
 #include <memory>
 #include <memory_resource>
 #include <algorithm>
+#include <execution>
 
 template <typename Vector> struct Voronoi
 {
@@ -69,12 +70,12 @@ template <typename Vector> struct Voronoi
 				return 2 * newer.position.x > left.position.x + right.position.x;
 
 			if (left.position.y < right.position.y && newer.position.x >= right.position.x) return true;
-			if (left.position.y > right.position.y && newer.position.x <= left.position.x)	return false;
+			if (left.position.y > right.position.y && newer.position.x <= left.position.x) return false;
 
 			auto squaredLength = [](const Vector& v) { return v.x * v.x + v.y * v.y; };
 			const Vector deltaLeft = { newer.position.x - left.position.x, newer.position.y - left.position.y };
 			const Vector deltaRight = { newer.position.x - right.position.x, newer.position.y - right.position.y };
-			return squaredLength(deltaRight) * deltaLeft.y < squaredLength(deltaLeft)* deltaRight.y;
+			return squaredLength(deltaRight) * deltaLeft.y < squaredLength(deltaLeft) * deltaRight.y;
 		}
 	};
 
@@ -135,8 +136,7 @@ template <typename Vector> struct Voronoi
 			{
 				// When there is no Voronoi vertex at all, then this edge is a infinite straight with no intersections. 
 				// In this case we output a ray with origin in the middle of both sites
-				auto origin = (*cell->point + *twin->cell->point) / 2;
-				return Ray{ origin, perpendicular(*cell->point, *twin->cell->point) };
+				return Ray{ center(*cell->point, *twin->cell->point), perpendicular(*cell->point, *twin->cell->point) };
 			}
 		}
 	};
@@ -193,7 +193,7 @@ template <typename Vector> struct Voronoi
 		for (auto point = pointsBegin; point != pointsEnd; ++point)
 			sites.emplace_back(Site<Iterator>{ Vector{ static_cast<T>(point->x), static_cast<T>(point->y) }, point, 0 });
 
-		std::sort(sites.begin(), sites.end(), [](const Site<Iterator>& a, const Site<Iterator>& b) {
+		std::sort(std::execution::par_unseq, sites.begin(), sites.end(), [](const Site<Iterator>& a, const Site<Iterator>& b) {
 			if (a.iterator->y == b.iterator->y) return a.iterator->x < b.iterator->x;
 			return a.iterator->y < b.iterator->y;
 		});
@@ -412,7 +412,6 @@ template <typename Vector> struct Voronoi
 		BeachlineNode<Iterator> rightNode)
 	{
 		auto euclideanDistance = [](const Vector& a, const Vector& b) { return std::hypot(a.x - b.x, a.y - b.y); };
-		auto center = [](const Vector& a, const Vector& b) { return Vector{ (a.x + b.x) / 2, (a.y + b.y) / 2 }; };
 
 		const auto& leftSite = leftNode->first.leftSite;
 		const auto& middleSite = rightNode->first.leftSite;
@@ -459,6 +458,10 @@ template <typename Vector> struct Voronoi
 	}
 
 protected:
+	template <class InputVec> static constexpr Vector center(const InputVec& a, const InputVec& b) {
+		return { (a.x + b.x) / 2, (a.y + b.y) / 2 };
+	}
+
 	template <class InputVec> static constexpr Vector perpendicular(const InputVec& a, const InputVec& b) {
 		return { a.y - b.y, b.x - a.x };
 	}
