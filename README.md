@@ -20,7 +20,7 @@ for (auto& cell : output.cells)
     // if the edge is infinite, it's direction can be calculated with their two associated cells
     if (!edge->isFinite())
     {
-      auto [rayOrigin, rayDirection] = edge.asRay();
+      auto [rayOrigin, rayDirection] = edge->asRay();
     }
   }
 }
