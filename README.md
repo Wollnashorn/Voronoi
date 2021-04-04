@@ -3,11 +3,11 @@
 
 ### Example
 ```cpp
-// Your Vector class must have the public member floating-point variables x and y, that's the only requirement
+// Your Vector class must have the public floating-point fields x and y, that's the only requirement
 using Voronoi = Voronoi<Vector2>;
 
 // Any iterable container can be used as point source.
-// The points must be of a type, that can be casted to the provided Vector class
+// The points must be of a type, that can be instantiated with two floats {x, y}
 std::vector<Vector2> points = { {0, 0}, {2, 3}, {6, 1}, {3, 10} };
 auto output = Voronoi::generate(points.cbegin(), points.cend());
 
