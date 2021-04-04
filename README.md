@@ -17,7 +17,7 @@ for (auto& cell : output.cells)
   auto incidentEdge = cell.incidentEdge;
   for (auto edge = incidentEdge; edge->next != incidentEdge; edge = edge->next)
   {
-    // if the edge is infinite, it's direction can be calculated with their two associated cells
+    // if the edge is infinite, the bisector can be calculated with the two neighbouring sites
     if (!edge->isFinite())
     {
       auto [rayOrigin, rayDirection] = edge->asRay();
