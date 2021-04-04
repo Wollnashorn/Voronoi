@@ -22,7 +22,7 @@ for (auto& cell : output.cells)
     {
       auto [rayOrigin, rayDirection] = edge->asRay();
     }
-    // otherwise the edge has an associcated start and an end vertex
+    // otherwise the edge has an associcated start and end vertex
     else
     {
       auto a = edge->vertex->circumcenter;
