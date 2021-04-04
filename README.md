@@ -13,7 +13,11 @@ auto output = Voronoi::generate(points.cbegin(), points.cend());
 
 // Iterate through all Voronoi vertices and their corresponding Delaunay triangle
 for (auto& vertex : output.vertices)
+{
+    auto circumcenter = vertex.circumcenter;
+    auto radius = vertex.radius;
     auto [a, b, c] = vertex.triangle;
+}
 
 // One way to iterate through all cells and edges
 for (auto& cell : output.cells)
