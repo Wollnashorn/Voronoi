@@ -8,28 +8,29 @@ using Voronoi = Voronoi<Vector2>;
 
 // Any iterable container can be used as point source.
 // The points must be of a type, that can be instantiated with two floats {x, y}
-std::vector<Vector2> points = { {0, 0}, {2, 3}, {6, 1}, {3, 10} };
+std::vector<Vector2> points = {{0, 0}, {2, 3}, {6, 1}, {3, 10}};
 auto output = Voronoi::generate(points.cbegin(), points.cend());
 
 // One way to iterate through all cells and edges
-for (auto& cell : output.cells)
+for (auto &cell : output.cells)
 {
-  auto incidentEdge = cell.incidentEdge;
-  auto edge = incidentEdge;
-  do
-  {
-    // if the edge is infinite, the bisector can be calculated with the two neighbouring sites
-    if (!edge->isFinite())
+    auto incidentEdge = cell.incidentEdge;
+    auto edge = incidentEdge;
+    do
     {
-      auto [rayOrigin, rayDirection] = edge->asRay();
-    }
-    // otherwise the edge has an associcated start and end vertex
-    else
-    {
-      auto a = edge->vertex->circumcenter;
-      auto b = edge->twin->vertex->circumcenter;
-    }
-    edge = edge->next;
-  } while (edge != incidentEdge);
+        // if the edge is infinite, the bisector can be calculated with the two neighbouring sites
+        if (!edge->isFinite())
+        {
+            auto [rayOrigin, rayDirection] = edge->asRay();
+        }
+        // otherwise the edge has an associcated start and end vertex
+        else
+        {
+            auto a = edge->vertex->circumcenter;
+            auto b = edge->twin->vertex->circumcenter;
+        }
+        edge = edge->next;
+    } while (edge != incidentEdge);
+}
 }
 ```
