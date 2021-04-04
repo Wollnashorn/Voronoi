@@ -15,7 +15,8 @@ auto output = Voronoi::generate(points.cbegin(), points.cend());
 for (auto& cell : output.cells)
 {
   auto incidentEdge = cell.incidentEdge;
-  for (auto edge = incidentEdge; edge->next != incidentEdge; edge = edge->next)
+  auto edge = incidentEdge;
+  do
   {
     // if the edge is infinite, the bisector can be calculated with the two neighbouring sites
     if (!edge->isFinite())
@@ -28,7 +29,7 @@ for (auto& cell : output.cells)
       auto a = edge->vertex->circumcenter;
       auto b = edge->twin->vertex->circumcenter;
     }
-  }
+    edge = edge->next;
+  } while (edge != incidentEdge);
 }
-
 ```
