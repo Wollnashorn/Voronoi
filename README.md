@@ -48,7 +48,7 @@ Voronoi diagrams can be used to find an approximated medial axis of a geometric 
 For concave shapes it can be useful to ignore all Voronoi vertices when generating the diagram, which would lie outside of the shape.
 That can be done with passing a predicate function like this:
 ```cpp
-auto discardOutside = [&](const auto& voronoiVertex)
+auto discardOutside = [](const auto& voronoiVertex)
 {
     auto sorted = voronoiVertex.triangle;
     std::sort(sorted.begin(), sorted.end());
