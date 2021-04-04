@@ -46,7 +46,7 @@ for (auto& cell : output.cells)
 Voronoi diagrams can be used to find an approximated medial axis of a geometric shape. To do that, simply generate the diagram of the contour vertices. The more points are used to trace the contour, the more accurate the resulting medial axis will be.
 
 For concave shapes it can be useful to ignore all Voronoi vertices when generating the diagram, which would lie outside of the shape.
-That can be done with passing a predicate function like this.
+That can be done with passing a predicate function like this:
 ```cpp
 auto discardOutside = [&](const auto& voronoiVertex)
 {
