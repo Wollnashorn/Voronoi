@@ -54,10 +54,9 @@ auto discardOutside = [&](const auto& voronoiVertex)
     std::sort(sorted.begin(), sorted.end());
     auto normalA = *sorted[1] - *sorted[0];
     auto normalB = *sorted[2] - *sorted[0];
-    auto winding = normalA.x*normalB.y - normalA.y*normalB.x >= 0;
-    return winding;
+    return normalA.x*normalB.y - normalA.y*normalB.x >= 0;
 };
 
-Voronoi::generate(outline.cbegin(), outline.cend(), discardOutside);
+Voronoi::generate(points.begin(), points.end(), discardOutside);
 ```
 > Here resulting triangles having the wrong winding order will be discarded 
