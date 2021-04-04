@@ -32,5 +32,4 @@ for (auto &cell : output.cells)
         edge = edge->next;
     } while (edge != incidentEdge);
 }
-}
 ```
