@@ -6,6 +6,7 @@
 #include <deque>
 #include <set>
 #include <algorithm>
+#include <cstddef>
 
 namespace Voronoi
 {
