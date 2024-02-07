@@ -12,10 +12,11 @@ namespace Voronoi
 {
     constexpr auto defaultIgnorePredicate = [](auto&&) { return false; };
 
-    template <class T> struct SparseAllocator : std::allocator<T>
+    template <class T> struct SparseAllocator
+#if defined(_MSC_VER) && _ITERATOR_DEBUG_LEVEL != 0 
+    : std::allocator<T>
+#endif
     {
-        using std::allocator<T>::allocator; 
-
         using size_type = size_t;
         using difference_type = ptrdiff_t;
         using pointer = T*;
@@ -23,8 +24,6 @@ namespace Voronoi
         using reference = T&;
         using const_reference = const T&;
         using value_type = T;
-
-        template <class Other> struct rebind { using other = SparseAllocator<Other>; };
 
         std::deque<std::array<std::byte, sizeof(T)>> memory;
         std::vector<T*> recycle;
